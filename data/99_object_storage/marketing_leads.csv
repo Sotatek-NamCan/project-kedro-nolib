@@ -1,0 +1,9 @@
+﻿lead_id,industry,lead_source,visits,monthly_spend,score,region,converted,notes
+1001,saas,webinar,7,1200.50,0.82,apac,1,"renewal upsell"
+1002,ecommerce,referral,3,450.00,0.41,emea,0,"low engagement"
+1003,fintech,conference,11,2100.75,0.91,noram,1,"asked for demo"
+1004,healthcare,paid_ads,2,300.00,0.36,noram,0,"budget hold"
+1005,retail,webinar,5,800.00,0.67,latam,1,"pilot success"
+1006,logistics,referral,4,650.25,0.58,apac,0,"needs pricing"
+1007,saas,community,9,1500.10,0.88,emea,1,"multi-region roll-out"
+1008,fintech,paid_ads,1,220.40,0.29,latam,0,"no response"

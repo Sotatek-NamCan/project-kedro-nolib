@@ -1,0 +1,57 @@
+marketing_leads:
+  coerce: true
+  columns:
+    lead_id:
+      dtype: int
+      checks:
+        ge: 0
+    industry:
+      dtype: str
+      checks:
+        isin:
+          - saas
+          - ecommerce
+          - fintech
+          - healthcare
+          - retail
+          - logistics
+    lead_source:
+      dtype: str
+      checks:
+        isin:
+          - webinar
+          - referral
+          - conference
+          - paid_ads
+          - community
+    visits:
+      dtype: int
+      checks:
+        ge: 0
+    monthly_spend:
+      dtype: float
+      checks:
+        ge: 0
+    score:
+      dtype: float
+      checks:
+        between:
+          - 0
+          - 1
+    region:
+      dtype: str
+      checks:
+        isin:
+          - apac
+          - emea
+          - noram
+          - latam
+    converted:
+      dtype: int
+      checks:
+        isin:
+          - 0
+          - 1
+    notes:
+      dtype: str
+      nullable: true

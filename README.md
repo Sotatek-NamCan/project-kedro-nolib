@@ -13,9 +13,13 @@ mount its own config/env file before triggering the run.
 ## Layout
 
 - `config/pipeline.yml` – end-to-end pipeline definition (ingestion, features,
-  split, model, output paths).
+  split, model, output paths) for the churn dataset.
+- `config/pipeline_marketing.yml` – alternate configuration that targets a
+  marketing-leads dataset with a different schema/model setup.
 - `config/schema/churn_customers.yml` – Pandera schema for the churn dataset.
-- `data/01_raw/customers.csv` – sample dataset copied from the Kedro project.
+- `config/schema/marketing_leads.yml` – Pandera schema for the marketing dataset.
+- `data/01_raw/marketing_leads.csv` – lightweight marketing-leads sample to
+  showcase how the same codebase adapts to another domain.
 - `src/plain_mlops/` – plain Python implementation of ingest/validation/modeling.
 
 ## Installation
@@ -38,9 +42,16 @@ By default the CLI resolves paths relative to the project root. Use
 `--project-root` if your config lives elsewhere, and `--metrics-json` to mirror
 metrics to an extra location.
 
-The configured outputs land in `outputs/metrics.json` and
-`outputs/model.joblib`. The CLI also prints the metrics to stdout so you can
-quickly see how a config change affects performance.
+The marketing sample can be executed with:
+
+```bash
+python -m plain_mlops --config config/pipeline_marketing.yml
+```
+
+The default config writes to `outputs/metrics.json` and `outputs/model.joblib`,
+while the marketing profile stores artifacts under `outputs/marketing/`. The
+CLI also prints the metrics to stdout so you can quickly see how a config change
+affects performance.
 
 ## Airflow / container-friendly workflow
 

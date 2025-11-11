@@ -1,5 +1,5 @@
 ingest:
-  file_path: data/01_raw/customers.csv
+  file_path: data/01_raw/marketing_leads.csv
   file_extension: .csv
   object_storage:
     enabled: false
@@ -7,33 +7,32 @@ ingest:
     bucket:
     cache_dir: data/99_object_storage
 schema:
-  file_path: config/schema/churn_customers.yml
-  schema_key: churn_customers
+  file_path: config/schema/marketing_leads.yml
+  schema_key: marketing_leads
 prepare:
   drop_columns:
-    - useless_col
-    - drop_me
-    - id
-  label_col: churned
+    - notes
+  label_col: converted
   numeric_cols:
-    - age
-    - tenure_months
-    - total_spent
-    - last_login_days
+    - visits
+    - monthly_spend
+    - score
   categorical_cols:
-    - gender
-    - plan_type
+    - industry
+    - lead_source
+    - region
   feature_cols:
-    - age
-    - tenure_months
-    - total_spent
-    - last_login_days
-    - gender
-    - plan_type
-  test_size: 0.2
-  random_state: 42
+    - visits
+    - monthly_spend
+    - score
+    - industry
+    - lead_source
+    - region
+  test_size: 0.25
+  random_state: 123
   precomputed_splits:
-    enabled: false
+    # Marketing dataset uses local train/test splits by default
+    enabled: true
     bucket:
     prefix:
     format: csv
@@ -42,26 +41,27 @@ prepare:
     x_test_key:
     y_test_key:
 model:
-  selected: random_forest
+  selected: marketing_logreg
   options:
-    logistic_regression:
+    marketing_logreg:
       type: logreg
       hyperparameters:
-        C: 1.0
-        max_iter: 1000
-    random_forest:
+        C: 1.5
+        penalty: l2
+        solver: lbfgs
+        max_iter: 200
+    balanced_forest:
       type: rf
       hyperparameters:
-        n_estimators: 200
-        max_depth: 20
+        n_estimators: 300
+        max_depth: 18
         max_features: sqrt
         min_samples_split: 2
         min_samples_leaf: 1
-        random_state: 17
-        class_weight: null
+        class_weight: balanced
 output:
-  metrics_path: outputs/metrics.json
-  model_path: outputs/model.joblib
+  metrics_path: outputs/marketing/metrics.json
+  model_path: outputs/marketing/model.joblib
   object_storage:
     enabled: true
     bucket:
