@@ -5,7 +5,10 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Dict
+
+import pandas as pd
 
 import joblib
 
@@ -98,11 +101,15 @@ class DataPipeline:
             model_cfg=model_cfg,
         )
 
-        self._persist_artifacts(metrics, model, output_cfg)
+        self._persist_artifacts(metrics, model, output_cfg, splits)
         return PipelineResult(model=model, metrics=metrics, splits=splits)
 
     def _persist_artifacts(
-        self, metrics: Dict[str, float], model: Any, output_cfg: Dict[str, Any]
+        self,
+        metrics: Dict[str, float],
+        model: Any,
+        output_cfg: Dict[str, Any],
+        splits: DatasetSplits | None,
     ) -> None:
         metrics_path_cfg = output_cfg.get("metrics_path")
         model_path_cfg = output_cfg.get("model_path")
@@ -123,6 +130,7 @@ class DataPipeline:
             metrics_file=metrics_file,
             model_file=model_file,
             output_cfg=output_cfg,
+            splits=splits,
         )
 
     def _mirror_to_object_storage(
@@ -131,6 +139,7 @@ class DataPipeline:
         metrics_file: Path | None,
         model_file: Path | None,
         output_cfg: Dict[str, Any],
+        splits: DatasetSplits | None,
     ) -> None:
         storage_cfg = output_cfg.get("object_storage") or {}
         bucket_override = (
@@ -142,6 +151,36 @@ class DataPipeline:
         metrics_key_override = storage_cfg.get("metrics_key")
         model_key_override = storage_cfg.get("model_key")
         enabled = storage_cfg.get("enabled", False)
+        splits_cfg = storage_cfg.get("splits") or {}
+        splits_bucket_override = (
+            splits_cfg.get("bucket")
+            or os.getenv("OBJECT_STORAGE_SPLITS_BUCKET")
+            or bucket_override
+        )
+        splits_prefix = (
+            splits_cfg.get("prefix")
+            or os.getenv("OBJECT_STORAGE_SPLITS_PREFIX")
+            or prefix
+        )
+        splits_format = (
+            splits_cfg.get("format")
+            or os.getenv("OBJECT_STORAGE_SPLITS_FORMAT")
+            or "csv"
+        ).lower()
+        splits_requested = bool(splits) and (
+            splits_cfg.get("enabled", False)
+            or any(
+                splits_cfg.get(name)
+                for name in (
+                    "x_train_key",
+                    "y_train_key",
+                    "x_test_key",
+                    "y_test_key",
+                    "bucket",
+                    "prefix",
+                )
+            )
+        )
 
         should_upload = enabled or any(
             [
@@ -150,12 +189,14 @@ class DataPipeline:
                 model_key_override,
                 bucket_override,
             ]
-        )
+        ) or splits_requested
         if not should_upload:
             return
 
         try:
-            client = build_storage_client(bucket=bucket_override)
+            client = build_storage_client(
+                bucket=bucket_override or splits_bucket_override
+            )
         except ObjectStorageConfigurationError:
             if enabled:
                 raise RuntimeError(
@@ -184,3 +225,62 @@ class DataPipeline:
 
         _upload(metrics_file, metrics_key_override)
         _upload(model_file, model_key_override)
+
+        if not splits or not splits_requested:
+            return
+
+        if splits_format not in {"csv", "parquet"}:
+            raise ValueError(
+                f"Unsupported splits serialization format '{splits_format}'. "
+                "Supported formats: csv, parquet."
+            )
+
+        split_overrides = {
+            "X_train": splits_cfg.get("x_train_key"),
+            "y_train": splits_cfg.get("y_train_key"),
+            "X_test": splits_cfg.get("x_test_key"),
+            "y_test": splits_cfg.get("y_test_key"),
+        }
+
+        def _build_split_key(default_name: str, override: str | None) -> str:
+            if override:
+                return override.lstrip("/")
+            target_prefix = splits_prefix or ""
+            cleaned = target_prefix.strip().strip("/")
+            split_dir = f"{cleaned}/splits" if cleaned else "splits"
+            return f"{split_dir}/{default_name}"
+
+        with TemporaryDirectory() as tmp_dir:
+            tmp_base = Path(tmp_dir)
+
+            def _serialize_and_upload(
+                name: str, data: pd.DataFrame | pd.Series, override: str | None
+            ) -> None:
+                filename = f"{name}.{splits_format}"
+                path = tmp_base / filename
+                # Ensure Series are converted to DataFrames for consistent serialization.
+                serializable = (
+                    data.to_frame(name=data.name or "value")
+                    if isinstance(data, pd.Series)
+                    else data
+                )
+                if splits_format == "csv":
+                    serializable.to_csv(path, index=False)
+                else:
+                    serializable.to_parquet(path, index=False)
+                key = _build_split_key(filename, override)
+                try:
+                    client.upload(
+                        source=path,
+                        object_key=key,
+                        bucket=splits_bucket_override,
+                    )
+                except ObjectStorageOperationError as exc:
+                    raise RuntimeError(
+                        f"Failed to upload dataset split '{name}' to object storage."
+                    ) from exc
+
+            _serialize_and_upload("X_train", splits.X_train, split_overrides["X_train"])
+            _serialize_and_upload("y_train", splits.y_train, split_overrides["y_train"])
+            _serialize_and_upload("X_test", splits.X_test, split_overrides["X_test"])
+            _serialize_and_upload("y_test", splits.y_test, split_overrides["y_test"])

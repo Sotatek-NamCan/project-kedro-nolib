@@ -1,0 +1,13 @@
+id,age,gender,tenure_months,plan_type,total_spent,last_login_days,churned,useless_col,drop_me
+1,32,male,12,basic,120.5,5,0,foo,bar
+2,45,female,36,pro,980.0,1,1,foo,bar
+3,23,male,4,basic,40.0,20,0,foo,bar
+4,51,female,60,enterprise,5250.2,2,0,foo,bar
+5,29,female,8,pro,310.5,15,1,foo,bar
+6,40,male,24,basic,500.0,30,1,foo,bar
+7,38,female,18,pro,760.1,12,0,foo,bar
+8,27,male,6,basic,80.0,45,1,foo,bar
+9,55,female,72,enterprise,9100.0,3,0,foo,bar
+10,33,male,10,pro,200.0,22,1,foo,bar
+11,48,female,48,enterprise,6400.0,4,0,foo,bar
+12,36,male,14,pro,420.0,8,0,foo,bar

@@ -54,8 +54,17 @@ output:
   metrics_path: outputs/metrics.json
   model_path: outputs/model.joblib
   object_storage:
-    enabled: false
+    enabled: true
     bucket:
     prefix:
     metrics_key:
     model_key:
+    splits:
+      enabled: true
+      bucket:
+      prefix:
+      format: parquet
+      x_train_key:
+      y_train_key:
+      x_test_key:
+      y_test_key:
