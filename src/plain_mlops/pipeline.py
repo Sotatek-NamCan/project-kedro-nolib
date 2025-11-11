@@ -14,7 +14,7 @@ import joblib
 
 from .config_loader import ConfigBundle, extract_sections
 from .ingestion import ingest_data
-from .processing import DatasetSplits, run_training_workflow
+from .processing import DatasetSplits, evaluate, run_training_workflow, train_model
 from .schema import load_schema_definition, resolve_schema
 from .storage import (
     ObjectStorageConfigurationError,
@@ -73,9 +73,6 @@ class DataPipeline:
         model_cfg = self.bundle.data.get("model") or {}
         output_cfg = self.bundle.data.get("output") or {}
 
-        dataset = ingest_data(ingest_cfg, project_root=self.bundle.project_root)
-        schema = self._load_schema(schema_cfg)
-
         drop_columns = _ensure_tuple(prepare_cfg, "drop_columns", "drop_cols", required=False)
         feature_cols = _ensure_tuple(prepare_cfg, "feature_cols")
         numeric_cols = _ensure_tuple(prepare_cfg, "numeric_cols")
@@ -89,17 +86,33 @@ class DataPipeline:
             "random_state": prepare_cfg.get("random_state", 42),
         }
 
-        model, metrics, splits = run_training_workflow(
-            dataset,
-            schema=schema,
-            drop_columns=drop_columns,
-            feature_cols=feature_cols,
-            label_col=label_col,
-            numeric_cols=numeric_cols,
-            categorical_cols=categorical_cols,
-            splitter_cfg=split_cfg,
-            model_cfg=model_cfg,
-        )
+        precomputed_cfg = prepare_cfg.get("precomputed_splits") or {}
+        use_precomputed = self._should_use_precomputed_splits(precomputed_cfg)
+
+        if use_precomputed:
+            splits = self._load_precomputed_splits(precomputed_cfg)
+            model = train_model(
+                splits.X_train,
+                splits.y_train,
+                numeric_cols=numeric_cols,
+                categorical_cols=categorical_cols,
+                model_cfg=model_cfg,
+            )
+            metrics = evaluate(model, splits.X_test, splits.y_test)
+        else:
+            dataset = ingest_data(ingest_cfg, project_root=self.bundle.project_root)
+            schema = self._load_schema(schema_cfg)
+            model, metrics, splits = run_training_workflow(
+                dataset,
+                schema=schema,
+                drop_columns=drop_columns,
+                feature_cols=feature_cols,
+                label_col=label_col,
+                numeric_cols=numeric_cols,
+                categorical_cols=categorical_cols,
+                splitter_cfg=split_cfg,
+                model_cfg=model_cfg,
+            )
 
         self._persist_artifacts(metrics, model, output_cfg, splits)
         return PipelineResult(model=model, metrics=metrics, splits=splits)
@@ -284,3 +297,110 @@ class DataPipeline:
             _serialize_and_upload("y_train", splits.y_train, split_overrides["y_train"])
             _serialize_and_upload("X_test", splits.X_test, split_overrides["X_test"])
             _serialize_and_upload("y_test", splits.y_test, split_overrides["y_test"])
+
+    @staticmethod
+    def _should_use_precomputed_splits(cfg: Dict[str, Any]) -> bool:
+        if not cfg:
+            return False
+        return cfg.get("enabled", False) or any(
+            cfg.get(name)
+            for name in (
+                "x_train_key",
+                "y_train_key",
+                "x_test_key",
+                "y_test_key",
+                "bucket",
+                "prefix",
+            )
+        )
+
+    def _load_precomputed_splits(self, cfg: Dict[str, Any]) -> DatasetSplits:
+        splits_bucket = (
+            cfg.get("bucket")
+            or os.getenv("OBJECT_STORAGE_SPLITS_INPUT_BUCKET")
+            or os.getenv("OBJECT_STORAGE_SPLITS_BUCKET")
+            or os.getenv("OBJECT_STORAGE_BUCKET")
+        )
+        splits_prefix = (
+            cfg.get("prefix")
+            or os.getenv("OBJECT_STORAGE_SPLITS_INPUT_PREFIX")
+            or os.getenv("OBJECT_STORAGE_SPLITS_PREFIX")
+        )
+        splits_format = (
+            cfg.get("format")
+            or os.getenv("OBJECT_STORAGE_SPLITS_INPUT_FORMAT")
+            or os.getenv("OBJECT_STORAGE_SPLITS_FORMAT")
+            or "csv"
+        ).lower()
+        if splits_format not in {"csv", "parquet"}:
+            raise ValueError(
+                f"Unsupported precomputed splits format '{splits_format}'. "
+                "Supported formats: csv, parquet."
+            )
+
+        overrides = {
+            "X_train": cfg.get("x_train_key"),
+            "y_train": cfg.get("y_train_key"),
+            "X_test": cfg.get("x_test_key"),
+            "y_test": cfg.get("y_test_key"),
+        }
+
+        def _default_key(name: str) -> str:
+            default_filename = f"{name}.{splits_format}"
+            if overrides[name]:
+                return overrides[name].lstrip("/")
+            target_prefix = splits_prefix or ""
+            cleaned = target_prefix.strip().strip("/")
+            split_dir = f"{cleaned}/splits" if cleaned else "splits"
+            return f"{split_dir}/{default_filename}"
+
+        try:
+            client = build_storage_client(bucket=splits_bucket)
+        except ObjectStorageConfigurationError as exc:
+            raise RuntimeError(
+                "Failed to configure object storage client for precomputed splits."
+            ) from exc
+
+        loaded: Dict[str, pd.DataFrame | pd.Series] = {}
+        with TemporaryDirectory() as tmp_dir:
+            tmp_base = Path(tmp_dir)
+
+            def _download_and_load(name: str, expects_series: bool) -> None:
+                filename = f"{name}.{splits_format}"
+                destination = tmp_base / filename
+                object_key = _default_key(name)
+                try:
+                    client.download(
+                        object_key=object_key,
+                        destination=destination,
+                        bucket=splits_bucket,
+                    )
+                except ObjectStorageOperationError as exc:
+                    raise RuntimeError(
+                        f"Unable to download precomputed split '{name}' "
+                        f"from object storage (key='{object_key}')."
+                    ) from exc
+
+                if splits_format == "csv":
+                    frame = pd.read_csv(destination)
+                else:
+                    frame = pd.read_parquet(destination)
+                if expects_series:
+                    if frame.shape[1] == 0:
+                        raise ValueError(f"Split '{name}' has no columns.")
+                    series = frame.iloc[:, 0].copy()
+                    loaded[name] = series.reset_index(drop=True)
+                else:
+                    loaded[name] = frame.reset_index(drop=True)
+
+            _download_and_load("X_train", expects_series=False)
+            _download_and_load("y_train", expects_series=True)
+            _download_and_load("X_test", expects_series=False)
+            _download_and_load("y_test", expects_series=True)
+
+        return DatasetSplits(
+            X_train=loaded["X_train"],
+            X_test=loaded["X_test"],
+            y_train=loaded["y_train"],
+            y_test=loaded["y_test"],
+        )

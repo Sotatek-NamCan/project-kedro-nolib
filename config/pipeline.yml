@@ -32,6 +32,15 @@ prepare:
     - plan_type
   test_size: 0.2
   random_state: 42
+  precomputed_splits:
+    enabled: true
+    bucket:
+    prefix:
+    format: csv
+    x_train_key:
+    y_train_key:
+    x_test_key:
+    y_test_key:
 model:
   selected: random_forest
   options:
@@ -63,7 +72,7 @@ output:
       enabled: true
       bucket:
       prefix:
-      format: parquet
+      format: csv
       x_train_key:
       y_train_key:
       x_test_key:
