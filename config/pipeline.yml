@@ -1,0 +1,61 @@
+ingest:
+  file_path: data/01_raw/customers.csv
+  file_extension: .csv
+  object_storage:
+    enabled: false
+    object_key:
+    bucket:
+    cache_dir: data/99_object_storage
+schema:
+  file_path: config/schema/churn_customers.yml
+  schema_key: churn_customers
+prepare:
+  drop_columns:
+    - useless_col
+    - drop_me
+    - id
+  label_col: churned
+  numeric_cols:
+    - age
+    - tenure_months
+    - total_spent
+    - last_login_days
+  categorical_cols:
+    - gender
+    - plan_type
+  feature_cols:
+    - age
+    - tenure_months
+    - total_spent
+    - last_login_days
+    - gender
+    - plan_type
+  test_size: 0.2
+  random_state: 42
+model:
+  selected: random_forest
+  options:
+    logistic_regression:
+      type: logreg
+      hyperparameters:
+        C: 1.0
+        max_iter: 1000
+    random_forest:
+      type: rf
+      hyperparameters:
+        n_estimators: 200
+        max_depth: 20
+        max_features: sqrt
+        min_samples_split: 2
+        min_samples_leaf: 1
+        random_state: 17
+        class_weight: null
+output:
+  metrics_path: outputs/metrics.json
+  model_path: outputs/model.joblib
+  object_storage:
+    enabled: false
+    bucket:
+    prefix:
+    metrics_key:
+    model_key:

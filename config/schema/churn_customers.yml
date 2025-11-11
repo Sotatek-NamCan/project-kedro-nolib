@@ -1,0 +1,50 @@
+churn_customers:
+  coerce: true
+  columns:
+    id:
+      dtype: int
+      checks:
+        ge: 0
+    age:
+      dtype: int
+      checks:
+        between:
+          - 0
+          - 120
+    gender:
+      dtype: str
+      checks:
+        isin:
+          - male
+          - female
+    tenure_months:
+      dtype: int
+      checks:
+        ge: 0
+    plan_type:
+      dtype: str
+      checks:
+        isin:
+          - basic
+          - pro
+          - enterprise
+    total_spent:
+      dtype: float
+      checks:
+        ge: 0
+    last_login_days:
+      dtype: int
+      checks:
+        ge: 0
+    churned:
+      dtype: int
+      checks:
+        isin:
+          - 0
+          - 1
+    useless_col:
+      dtype: any
+      nullable: true
+    drop_me:
+      dtype: any
+      nullable: true
